@@ -1,0 +1,1196 @@
+﻿<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Welcome file</title>
+    <link rel="stylesheet" href="https://stackedit.io/style.css" />
+  </head>
+
+  <body class="stackedit">
+    <div class="stackedit__html">
+      <h3 id="easytutor-exam-feature-documentation">
+        EasyTutor Exam Feature Documentation
+      </h3>
+      <h3 id="overview">1. Overview</h3>
+      <p>
+        The <strong>Exam Feature</strong> lets users—students, teachers, and
+        institutes—take mock exams in EasyTutor. There are two types:
+      </p>
+      <ul>
+        <li><strong>Trial Exam</strong>: Free, one-time use per user.</li>
+        <li>
+          <strong>Paid Exam</strong>: Bought directly with real money via
+          Razorpay, allows multiple attempts.
+        </li>
+      </ul>
+      <p>
+        Exams are purchased using Razorpay (cards, UPI, etc.), not coins. Coins,
+        managed through <code>wallets</code> and
+        <code>wallet_transactions</code>, are only for viewing profiles (e.g.,
+        student viewing a teacher’s details or institute viewing a student’s
+        profile) and are not part of this feature. Admins create exams, set
+        questions, timers, prices, and choose which user types (students,
+        teachers, institutes) can take each exam. After an exam, users see their
+        score, correct/wrong answers, and can retake paid exams. The app saves
+        progress if it crashes or loses internet, and answers stay hidden during
+        the exam to prevent cheating.
+      </p>
+      <hr />
+      <h3 id="database-tables-needed">2. Database Tables Needed</h3>
+      <p>
+        Here’s a list of tables we need, what changes we’re making to existing
+        ones, and what’s new. The <code>wallet_transactions</code> table will
+        handle Razorpay payments for exams, while coins (via
+        <code>wallets</code> and <code>wallet_transactions</code>) are only for
+        profile viewing.
+      </p>
+      <h4 id="existing-tables-with-changes">Existing Tables (with Changes)</h4>
+      <ol>
+        <li>
+          <p><strong>exams</strong> (Stores exam details):</p>
+          <ul>
+            <li>
+              <strong>What’s there</strong>: ID, name, subject, status
+              (active/inactive), created/updated timestamps.
+            </li>
+            <li>
+              <strong>Changes</strong>:
+              <ul>
+                <li>
+                  Add <code>timer_duration</code> (minutes, e.g., 60 for a
+                  1-hour exam).
+                </li>
+                <li>
+                  Add <code>negative_marking_enabled</code> (yes/no, to turn on
+                  negative marking).
+                </li>
+                <li>
+                  Add <code>negative_marking_threshold</code> (number of wrong
+                  answers for a penalty, e.g., 3).
+                </li>
+                <li>
+                  Add <code>negative_marking_value</code> (penalty amount, e.g.,
+                  -1 point).
+                </li>
+                <li>
+                  Add <code>target_users</code> (list of allowed users, e.g.,
+                  [“student”, “teacher”, “institute”]).
+                </li>
+                <li>
+                  Add <code>price</code> (amount in rupees for paid exams, e.g.,
+                  199.00).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Why</strong>: Timer and negative marking fields simplify
+              scoring. Target users filter exams by role. Price is for Razorpay
+              payments, replacing coin-based plans.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>questions</strong> (Stores exam questions):</p>
+          <ul>
+            <li>
+              <strong>What’s there</strong>: ID, question text, options (A, B,
+              C, D), correct answer, exam ID, created/updated timestamps.
+            </li>
+            <li>
+              <strong>Changes</strong>:
+              <ul>
+                <li>
+                  Add <code>marks</code> (points per question, e.g., 1 or 2).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Why</strong>: Marks allow flexible scoring, like making
+              some questions worth more points.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>student_exams</strong> (Tracks purchased exams):</p>
+          <ul>
+            <li>
+              <strong>What’s there</strong>: ID, student ID, exam ID, plan ID,
+              transaction ID, status, purchased timestamp.
+            </li>
+            <li>
+              <strong>Changes</strong>:
+              <ul>
+                <li>
+                  Rename to <code>user_exams</code> (to support all user types:
+                  students, teachers, institutes).
+                </li>
+                <li>
+                  Replace <code>student_id</code> with <code>user_id</code> (to
+                  work for all roles).
+                </li>
+                <li>
+                  Remove <code>plan_id</code> (no coins/plans for exams, since
+                  we’re using Razorpay).
+                </li>
+                <li>
+                  Update <code>status</code> to “PURCHASED”, “STARTED”,
+                  “COMPLETED” (to track exam progress).
+                </li>
+                <li>
+                  Add <code>is_trial</code> (yes/no, to mark trial exams).
+                </li>
+                <li>
+                  Keep <code>transaction_id</code> (links to
+                  <code>wallet_transactions</code> for Razorpay payments).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Why</strong>: Supports all users, tracks trial exams, and
+              connects to Razorpay payments via
+              <code>wallet_transactions</code>.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>wallet_transactions</strong> (Tracks Razorpay payments for
+            exams and coin transactions for profile viewing):
+          </p>
+          <ul>
+            <li>
+              <strong>What’s there</strong>: ID, wallet ID, user ID, units
+              (coins), amount (rupees), type (CREDIT/DEBIT), purpose (e.g.,
+              EXAM_PURCHASE, VIEW_PROFILE), plan ID, payment ID (Razorpay),
+              order ID (Razorpay), reference ID, status
+              (PENDING/COMPLETED/FAILED), description, created timestamp.
+            </li>
+            <li>
+              <strong>Changes</strong>:
+              <ul>
+                <li>
+                  Add <code>exam_id</code> (links to the exam purchased via
+                  Razorpay).
+                </li>
+                <li>
+                  Add “TRIAL_ACTIVATION” to <code>purpose</code> options (for
+                  free trial exams).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Why</strong>: Reuses the table for Razorpay payments
+              (<code>EXAM_PURCHASE</code>) and trial activations
+              (<code>TRIAL_ACTIVATION</code>) without coins.
+              <code>units</code> is ignored for exams but used for profile
+              viewing.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>plans</strong> (Holds coin plans for profile viewing):</p>
+          <ul>
+            <li>
+              <strong>What’s there</strong>: ID, name, amount (rupees), units
+              (coins), exam ID (unused), description, type (RECHARGE/EXAM),
+              active status, timestamps.
+            </li>
+            <li><strong>Changes</strong>: None.</li>
+            <li>
+              <strong>Why</strong>: Only used for buying coins for profile
+              viewing, not exams.
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <h4 id="new-table">New Table</h4>
+      <ol>
+        <li>
+          <strong>exam_attempts</strong> (Tracks each exam attempt):
+          <ul>
+            <li>
+              <strong>Columns</strong>:
+              <ul>
+                <li>ID (unique ID for the attempt).</li>
+                <li>
+                  <code>user_exam_id</code> (links to <code>user_exams</code>).
+                </li>
+                <li><code>start_time</code> (when the attempt started).</li>
+                <li><code>end_time</code> (when it finished).</li>
+                <li>
+                  <code>remaining_time</code> (seconds left, to resume after
+                  crashes).
+                </li>
+                <li>
+                  <code>answers</code> (list of question IDs and user’s chosen
+                  options, e.g., { “q1”: “A”, “q2”: “C” }).
+                </li>
+                <li><code>score</code> (percentage, e.g., 85.5).</li>
+                <li><code>correct_count</code> (number of correct answers).</li>
+                <li><code>wrong_count</code> (number of wrong answers).</li>
+                <li>
+                  <code>attempted_count</code> (number of questions answered).
+                </li>
+                <li>Created/updated timestamps.</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Why</strong>: Saves each attempt’s answers, score, and
+              progress for later review.
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <hr />
+      <h3 id="admin-routes-apis-for-admins">
+        3. Admin Routes (APIs for Admins)
+      </h3>
+      <p>
+        These APIs let admins manage exams. Each route lists the tables it
+        affects. They help admins set up exams, questions, and prices.
+      </p>
+      <ol>
+        <li>
+          <p><strong>Create Exam</strong> (<code>POST /admin/exams</code>):</p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Creates a new exam with a name,
+              subject, timer, price, negative marking settings, and target users
+              (students, teachers, institutes).
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li><code>exams</code> (adds the new exam).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Admin sets “Math Test” for students,
+              priced at ₹199, with a 60-minute timer and negative marking (3
+              wrong answers = -1 point). For trials, price is ₹0.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>Update Exam</strong> (<code>PUT /admin/exams/:examId</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Updates an exam’s details, like
+              name, timer, price, or target users.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li><code>exams</code> (updates the exam).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Admin changes “Math Test” price to ₹249
+              or adds “teachers” to target users.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>Add Questions</strong> (<code
+              >POST /admin/exams/:examId/questions</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Adds questions to an exam,
+              including text, four options, correct answer, and marks.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li><code>questions</code> (adds new questions).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Admin adds 50 questions to “Math Test,”
+              each worth 1 mark.
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <hr />
+      <h3 id="user-routes-apis-for-users">4. User Routes (APIs for Users)</h3>
+      <p>
+        These APIs let users (students, teachers, institutes) find, buy, take,
+        and review exams. Each route lists the tables it uses. They focus on
+        Razorpay for payments, using <code>wallet_transactions</code>.
+      </p>
+      <ol>
+        <li>
+          <p>
+            <strong>List Available Exams</strong> (<code>GET /exams/list</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Shows exams the user can take,
+              based on their role (student, teacher, institute). Includes trial
+              exams (free) and paid exams (with price), plus whether they’ve
+              bought or tried them.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li>
+                  <code>exams</code> (get exam details like name, price, target
+                  users).
+                </li>
+                <li>
+                  <code>user_exams</code> (check if the user bought the exam).
+                </li>
+                <li>
+                  <code>exam_attempts</code> (check if a trial was attempted).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: A student sees “Math Test” (₹199, not
+              bought) and “Science Trial” (free, not attempted).
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>Purchase Exam</strong> (<code
+              >POST /exams/:examId/purchase</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Lets a user buy a paid exam via
+              Razorpay.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li>
+                  <code>wallet_transactions</code> (record the Razorpay payment
+                  with <code>purpose = EXAM_PURCHASE</code>).
+                </li>
+                <li>
+                  <code>user_exams</code> (add the exam to the user’s list).
+                </li>
+                <li><code>exams</code> (get exam price).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Student pays ₹199 for “Math Test” using
+              Razorpay. The payment is saved in
+              <code>wallet_transactions</code> (with
+              <code>units = 0</code> since no coins), and the exam is unlocked.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>Activate Trial Exam</strong> (<code
+              >POST /exams/:examId/trial/activate</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Starts a free trial exam (one-time
+              per user).
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li><code>user_exams</code> (add the trial exam).</li>
+                <li>
+                  <code>wallet_transactions</code> (record with
+                  <code>purpose = TRIAL_ACTIVATION</code>,
+                  <code>amount = 0</code>, <code>units = 0</code>).
+                </li>
+                <li>
+                  <code>exam_attempts</code> (check if the trial was already
+                  taken).
+                </li>
+                <li>
+                  <code>exams</code> (verify it’s a trial exam with
+                  <code>price = 0</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Student starts “Science Trial” for free,
+              recorded in <code>wallet_transactions</code> as a zero-cost
+              transaction.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>Start Exam</strong> (<code>POST /exams/:examId/start</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Begins an exam, starts the timer,
+              and shows questions.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li><code>exam_attempts</code> (create a new attempt).</li>
+                <li>
+                  <code>questions</code> (get questions, without answers).
+                </li>
+                <li><code>exams</code> (get timer duration).</li>
+                <li><code>user_exams</code> (confirm the user has access).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Student starts “Math Test” and sees the
+              first question with a 60-minute timer.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>Submit Exam</strong> (<code>POST /exams/:examId/submit</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Submits the user’s answers,
+              calculates the score, and saves the results.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li>
+                  <code>exam_attempts</code> (save answers, score, correct/wrong
+                  counts).
+                </li>
+                <li><code>questions</code> (check correct answers).</li>
+                <li><code>exams</code> (apply negative marking rules).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Student submits “Math Test,” gets 85%,
+              with 3 points deducted for wrong answers.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>List Exam Attempts</strong> (<code
+              >GET /exams/:examId/attempts</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Shows all attempts for an exam,
+              with scores and dates.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li><code>exam_attempts</code> (get attempt details).</li>
+                <li><code>user_exams</code> (confirm access).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Student sees they scored 85% and 90% on
+              “Math Test” attempts.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>View Attempt Details</strong> (<code
+              >GET /exams/:examId/attempts/:attemptId</code
+            >):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Shows detailed results, including
+              which questions were correct or wrong.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li><code>exam_attempts</code> (get answers and score).</li>
+                <li>
+                  <code>questions</code> (get question text and correct
+                  answers).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Student reviews “Math Test” and sees
+              they picked “B” for question 1, but “A” was correct.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p>
+            <strong>List Payments</strong> (<code>GET /exam-payments</code>):
+          </p>
+          <ul>
+            <li>
+              <strong>What it does</strong>: Shows all exam purchases and trial
+              activations with exam name, amount paid (₹0 for trials), and date.
+            </li>
+            <li>
+              <strong>Tables</strong>:
+              <ul>
+                <li>
+                  <code>wallet_transactions</code> (get payment details with
+                  <code>purpose = EXAM_PURCHASE</code> or
+                  <code>TRIAL_ACTIVATION</code>).
+                </li>
+                <li><code>exams</code> (get exam names).</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Details</strong>: Student sees they paid ₹199 for “Math
+              Test” and activated “Science Trial” for ₹0 on May 1, 2025.
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <hr />
+      <h3 id="screens-for-admin-panel-and-users">
+        5. Screens for Admin Panel and Users
+      </h3>
+      <p>
+        Below are the screen names, what they show, and which APIs they use.
+        I’ve added details to make the user experience clear and tied each
+        screen to the Razorpay flow.
+      </p>
+      <h4 id="admin-panel-screens">Admin Panel Screens</h4>
+      <ol>
+        <li>
+          <p><strong>Exam List Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: A table of all exams with name,
+              subject, price (₹0 for trials), timer, target users (e.g.,
+              “Students, Teachers”), and status (active/inactive). Buttons to
+              edit, add questions, or delete.
+            </li>
+            <li>
+              <strong>User Experience</strong>: Admin searches for exams (e.g.,
+              “Math”) or filters by target users (e.g., “Student exams”). Each
+              exam has “Edit” or “Add Questions” buttons for quick access.
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>GET /admin/exams</code> (list exams, uses
+                  <code>exams</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: Admin sees “Math Test” (₹199, 60 mins,
+              for students) and “Science Trial” (₹0, 30 mins, for all).
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Create/Edit Exam Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: A form with fields:
+              <ul>
+                <li>Name (e.g., “Math Test”).</li>
+                <li>Subject (e.g., “Mathematics”).</li>
+                <li>Timer (e.g., 60 minutes).</li>
+                <li>Price (e.g., ₹199, or ₹0 for trials).</li>
+                <li>
+                  Negative marking (checkbox for “Enabled,” fields for
+                  threshold, e.g., 3, and penalty, e.g., -1).
+                </li>
+                <li>
+                  Target users (checkboxes: “Students,” “Teachers,”
+                  “Institutes”).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>User Experience</strong>: Admin fills the form and saves.
+              For trials, they set price to ₹0. If they forget a field (e.g.,
+              name), a clear error pops up. A preview shows how the exam will
+              look to users.
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>POST /admin/exams</code> (create exam, uses
+                  <code>exams</code>).
+                </li>
+                <li>
+                  <code>PUT /admin/exams/:examId</code> (update exam, uses
+                  <code>exams</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: Admin creates “Science Trial” for all
+              users, free, 30 minutes, with no negative marking.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Add Questions Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: A form to add questions one by one
+              or upload multiple. Fields: question text, four options (A, B, C,
+              D), correct answer, marks (e.g., 1 or 2).
+            </li>
+            <li>
+              <strong>User Experience</strong>: Admin types a question, picks
+              the correct answer, and adds more. They can preview questions or
+              upload a file for bulk questions (e.g., 50 at once). A “Save”
+              button confirms all questions are valid.
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>POST /admin/exams/:examId/questions</code> (add
+                  questions, uses <code>questions</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: Admin adds 50 questions to “Math Test,”
+              each worth 1 mark, with an option to upload a spreadsheet.
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <h4 id="user-app-screens">User App Screens</h4>
+      <ol>
+        <li>
+          <p><strong>Exam Home Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: A list of exams the user can take,
+              based on their role (student, teacher, institute). Each exam shows
+              name, subject, price (₹0 for trials), and status (Not Attempted,
+              Purchased, Completed). Includes a search bar and filters (e.g., by
+              subject).
+            </li>
+            <li>
+              <strong>User Experience</strong>: User scrolls through exams, sees
+              prices clearly (e.g., “₹199” or “Free”), and taps one for details.
+              Trials are highlighted as “Free.” If a trial is taken, it says
+              “Attempted” and is grayed out.
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>GET /exams/list</code> (list exams, uses
+                  <code>exams</code>, <code>user_exams</code>,
+                  <code>exam_attempts</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: A student sees “Math Test” (₹199, not
+              bought) and “Science Trial” (₹0, not attempted).
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Exam Detail Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: Exam details: name, subject,
+              timer, price, past attempts (e.g., “Scored 85% on May 1”).
+              Buttons: “Buy Now” (for paid exams), “Start Trial” (for trials),
+              or “Start Exam” (if bought).
+            </li>
+            <li>
+              <strong>User Experience</strong>: User taps “Buy Now” to start
+              Razorpay payment. After paying, “Start Exam” appears. For trials,
+              “Start Trial” is disabled with a message if already taken. Past
+              attempts link to results, and a “Retake” button shows for paid
+              exams.
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>GET /exams/:examId</code> (get exam details, uses
+                  <code>exams</code>).
+                </li>
+                <li>
+                  <code>POST /exams/:examId/purchase</code> (buy via Razorpay,
+                  uses <code>wallet_transactions</code>,
+                  <code>user_exams</code>, <code>exams</code>).
+                </li>
+                <li>
+                  <code>POST /exams/:examId/trial/activate</code> (start trial,
+                  uses <code>user_exams</code>,
+                  <code>wallet_transactions</code>, <code>exam_attempts</code>,
+                  <code>exams</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: Student pays ₹199 for “Math Test” via
+              Razorpay, then sees “Start Exam.”
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Exam Attempt Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: A countdown timer (e.g., “59:30”),
+              one question at a time, four options (A, B, C, D),
+              “Next”/“Previous” buttons, and a “Submit” button.
+            </li>
+            <li>
+              <strong>User Experience</strong>: User picks an answer, moves to
+              the next question, and can go back to change answers. The timer is
+              bold and clear. If the app crashes or internet drops, they resume
+              where they left off. A confirmation pops up before submitting. If
+              the timer runs out, answers are auto-submitted.
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>POST /exams/:examId/start</code> (start exam, uses
+                  <code>exam_attempts</code>, <code>questions</code>,
+                  <code>exams</code>, <code>user_exams</code>).
+                </li>
+                <li>
+                  <code>POST /exams/:examId/submit</code> (submit answers, uses
+                  <code>exam_attempts</code>, <code>questions</code>,
+                  <code>exams</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: Student answers 50 questions in “Math
+              Test” with a 60-minute timer.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Result Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: Score (e.g., “85%”), number of
+              correct/wrong/attempted questions, and a list of questions with
+              the user’s answer, correct answer, and a checkmark or cross for
+              right/wrong.
+            </li>
+            <li>
+              <strong>User Experience</strong>: User sees a summary (e.g., “42
+              correct, 8 wrong, -3 for penalties”) and scrolls through questions
+              to review mistakes. Colors highlight correct (green) and wrong
+              (red) answers. Buttons: “Retake Exam” (for paid exams) or “Back to
+              Exams.”
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>GET /exams/:examId/attempts/:attemptId</code> (view
+                  results, uses <code>exam_attempts</code>,
+                  <code>questions</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: Student sees they got question 1 wrong
+              (picked “B,” correct was “A”) and reviews all 50 questions.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Payment History Screen</strong>:</p>
+          <ul>
+            <li>
+              <strong>What it shows</strong>: A list of exam purchases and trial
+              activations with exam name, amount (e.g., ₹199, ₹0 for trials),
+              date, and status (Completed/Failed).
+            </li>
+            <li>
+              <strong>User Experience</strong>: User filters by date or exam
+              name to see what they’ve bought or activated. Failed payments are
+              marked with a retry option. Trials show as “Free.” A clean table
+              makes it easy to scan.
+            </li>
+            <li>
+              <strong>APIs</strong>:
+              <ul>
+                <li>
+                  <code>GET /exam-payments</code> (list payments, uses
+                  <code>wallet_transactions</code>, <code>exams</code>).
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong>Example</strong>: Student sees they paid ₹199 for “Math
+              Test” and activated “Science Trial” for ₹0 on May 1, 2025.
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <hr />
+      <h3 id="target-users-option">7. Target Users Option</h3>
+      <p>
+        When admins create or edit an exam, they choose which user types can
+        take it: <strong>students</strong>, <strong>teachers</strong>,
+        <strong>institutes</strong>, or any combination. This is saved in the
+        <code>exams.target_users</code> field as a list (e.g.,
+        <code>["student", "teacher"]</code>).
+      </p>
+      <ul>
+        <li>
+          <strong>How it works</strong>:
+          <ul>
+            <li>
+              In the <strong>Create/Edit Exam Screen</strong>, admins see
+              checkboxes: “Students,” “Teachers,” “Institutes.” They check one
+              or more to set who can access the exam.
+            </li>
+            <li>
+              The <strong>List Available Exams</strong> API checks the user’s
+              role (from their login) against <code>target_users</code>. For
+              example, a teacher only sees exams where
+              <code>target_users</code> includes “teacher.”
+            </li>
+            <li>
+              This applies to both trial and paid exams—role filtering happens
+              first.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Details</strong>:
+          <ul>
+            <li>
+              Admins can limit an exam to one role (e.g., students) or allow
+              multiple (e.g., students and teachers).
+            </li>
+            <li>
+              If no roles are selected, the exam is hidden from all users until
+              the admin fixes it.
+            </li>
+            <li>
+              The app shows a friendly message if no exams match the user’s role
+              (e.g., “No exams available for institutes yet”).
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Example</strong>: Admin creates “Math Test” for students only.
+          A student sees it in their Exam Home Screen, but a teacher doesn’t.
+        </li>
+      </ul>
+      <hr />
+      <h3 id="scoring-and-negative-marking">8. Scoring and Negative Marking</h3>
+      <p>Here’s how scores are calculated, in simple terms:</p>
+      <ul>
+        <li>
+          <strong>Basic Score</strong>: Count correct answers, divide by total
+          questions, multiply by 100. Example: 42 correct out of 50 questions =
+          <code>(42/50) * 100 = 84%</code>.
+        </li>
+        <li>
+          <strong>Marks</strong>: Each question has a mark value (e.g., 1 or 2).
+          If questions have different marks, the score is
+          <code
+            >(total marks for correct answers) / (total possible marks) *
+            100</code
+          >. Example: 40 marks correct out of 50 total marks =
+          <code>(40/50) * 100 = 80%</code>.
+        </li>
+        <li>
+          <strong>Negative Marking</strong>: If turned on in the
+          <code>exams</code> table:
+          <ul>
+            <li>Check <code>negative_marking_enabled</code> (yes/no).</li>
+            <li>
+              If yes, count wrong answers. For every
+              <code>negative_marking_threshold</code> wrong answers (e.g., 3),
+              subtract <code>negative_marking_value</code> (e.g., -1).
+            </li>
+            <li>
+              Example: 42 correct, 9 wrong, threshold = 3, penalty = -1. Penalty
+              = <code>floor(9/3) * -1 = -3</code>. Final score =
+              <code>84 - 3 = 81%</code>.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Minimum Score</strong>: Score can’t go below 0%, even with big
+          penalties.
+        </li>
+        <li>
+          <strong>Details</strong>:
+          <ul>
+            <li>
+              Negative marking is set per exam by admins in the
+              <strong>Create/Edit Exam Screen</strong>.
+            </li>
+            <li>
+              Users see the penalty in their results (e.g., “-3 points for 9
+              wrong answers”).
+            </li>
+            <li>
+              If negative marking is off, only correct answers count toward the
+              score.
+            </li>
+          </ul>
+        </li>
+      </ul>
+      <hr />
+      <h3 id="edge-cases-what-could-go-wrong-and-how-we-fix-it">
+        9. Edge Cases (What Could Go Wrong and How We Fix It)
+      </h3>
+      <p>
+        Here’s how we handle tricky situations to keep the app smooth, fair, and
+        user-friendly:
+      </p>
+      <ol>
+        <li>
+          <p><strong>App Crashes or Closes</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: User’s phone battery dies or they
+              accidentally close the app during an exam.
+            </li>
+            <li>
+              <strong>Fix</strong>: Save answers and remaining time locally on
+              the phone every 5 seconds. When they reopen, the app loads the
+              saved data and syncs with the server to resume exactly where they
+              left off. The timer runs server-side to prevent cheating.
+            </li>
+            <li>
+              <strong>Details</strong>: If the timer expires while the app is
+              closed, the exam auto-submits with the saved answers. Users see a
+              “Resuming your exam” message.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Internet Drops</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: User loses Wi-Fi or data mid-exam.
+            </li>
+            <li>
+              <strong>Fix</strong>: Store answers locally and show a “No
+              Internet, saving locally” message. Users can keep answering. When
+              internet returns, answers sync to the server. If the timer runs
+              out, the app submits saved answers.
+            </li>
+            <li>
+              <strong>Details</strong>: Submission requires internet, but
+              answering works offline. Users get a “Reconnected, syncing”
+              message when back online.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Cheating (Seeing Answers)</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: User tries to peek at correct answers
+              using browser tools or app inspection.
+            </li>
+            <li>
+              <strong>Fix</strong>: Questions are sent to the app without
+              answers during the exam. Correct answers are only sent after
+              submission or when viewing results.
+            </li>
+            <li>
+              <strong>Details</strong>: Answers are stored securely on the
+              server. Even if a user inspects the app, they can’t see correct
+              answers until the exam is done.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Trial Exam Abuse</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: User tries to take a trial exam more
+              than once.
+            </li>
+            <li>
+              <strong>Fix</strong>: Before allowing a trial, check
+              <code>user_exams</code> and <code>exam_attempts</code> for the
+              user and exam. If they’ve already taken it, block them with a
+              message: “You’ve already taken this trial.”
+            </li>
+            <li>
+              <strong>Details</strong>: Trials are tied to the user’s ID,
+              ensuring one attempt per exam per user.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Payment Fails</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: Razorpay payment fails (e.g., card
+              declined or UPI error).
+            </li>
+            <li>
+              <strong>Fix</strong>: Mark the payment as “FAILED” in
+              <code>wallet_transactions</code>. Show a clear error: “Payment
+              failed, please try again.” User can retry without being
+              double-charged.
+            </li>
+            <li>
+              <strong>Details</strong>: Only “COMPLETED” payments in
+              <code>wallet_transactions</code> unlock the exam. Failed attempts
+              are logged for troubleshooting.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Wrong Role Access</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: A teacher tries to access a student-only
+              exam.
+            </li>
+            <li>
+              <strong>Fix</strong>: The
+              <strong>List Available Exams</strong> API filters exams by
+              <code>target_users</code>. If the user’s role (e.g., teacher)
+              isn’t in the list, the exam doesn’t appear.
+            </li>
+            <li>
+              <strong>Details</strong>: Users see a message like “No exams
+              available for your role” if none match. This check happens
+              server-side to prevent tampering.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Timer Issues</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: User tries to pause the timer or cheat
+              by changing their phone’s clock.
+            </li>
+            <li>
+              <strong>Fix</strong>: The timer runs server-side, using
+              <code>start_time</code> and <code>remaining_time</code> in
+              <code>exam_attempts</code>. The app syncs with the server every 30
+              seconds to stay accurate, ignoring the phone’s clock.
+            </li>
+            <li>
+              <strong>Details</strong>: If a user tries to manipulate the timer,
+              the server’s time overrides it. Users see a warning if they try to
+              pause: “Timer cannot be paused.”
+            </li>
+          </ul>
+        </li>
+        <li>
+          <p><strong>Double Payments</strong>:</p>
+          <ul>
+            <li>
+              <strong>Problem</strong>: User accidentally pays twice for the
+              same exam.
+            </li>
+            <li>
+              <strong>Fix</strong>: Before processing a payment, check
+              <code>user_exams</code> to see if the user already owns the exam.
+              If they do, block the purchase and show: “You already own this
+              exam.”
+            </li>
+            <li>
+              <strong>Details</strong>: Razorpay’s <code>order_id</code> ensures
+              payments aren’t duplicated. Refunds can be issued via Razorpay if
+              needed.
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <hr />
+      <h3 id="putting-it-all-together">10. Putting It All Together</h3>
+      <p>Here’s the big picture of how the Exam Feature works:</p>
+      <ul>
+        <li>
+          <strong>For Users</strong>:
+          <ul>
+            <li>
+              Browse exams that match your role (student, teacher, institute).
+            </li>
+            <li>
+              Take a free trial exam once or buy a paid exam with Razorpay
+              (cards/UPI).
+            </li>
+            <li>
+              Answer questions within the timer, with progress saved if the app
+              crashes or internet drops.
+            </li>
+            <li>
+              Review your score, see correct/wrong answers, and retake paid
+              exams as needed.
+            </li>
+            <li>
+              Check your payment history to track purchases and trial
+              activations.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>For Admins</strong>:
+          <ul>
+            <li>
+              Create exams with custom names, timers, prices, and target users.
+            </li>
+            <li>Add questions and set negative marking rules (optional).</li>
+            <li>
+              Update exams anytime to change prices, target users, or other
+              details.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Razorpay Payments</strong>:
+          <ul>
+            <li>Users pay directly with cards or UPI, no coins involved.</li>
+            <li>
+              Payments are secure, verified, and tracked in
+              <code>wallet_transactions</code> with
+              <code>EXAM_PURCHASE</code> or <code>TRIAL_ACTIVATION</code>.
+            </li>
+            <li>Trials are free and logged as zero-cost transactions.</li>
+          </ul>
+        </li>
+        <li>
+          <strong>Fair and Safe</strong>:
+          <ul>
+            <li>Answers stay hidden during exams to prevent cheating.</li>
+            <li>Progress is saved during crashes or internet issues.</li>
+            <li>
+              Trials are limited to one per user, and role-based access is
+              enforced.
+            </li>
+          </ul>
+        </li>
+      </ul>
+      <hr />
+    </div>
+  </body>
+</html>
